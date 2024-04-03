@@ -7,24 +7,85 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+set.seed(16)
+library(R2jags)
+library(coda)
+library(ggplot2)  
+library(MASS)
+library(vroom)
 ```
 
-## R Markdown
+```{r}
+nail <- vroom("fake_data.csv")
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+colnames(nail) <- c("Subject", 'FingerNo', 'DominantH', "FailDay", "Censored")
+head(nail)
+nail$Censored <- ifelse(nail$Censored == 'Y', 1, 0)
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+Subject <- nail$Subject
+FingerNo <- nail$FingerNo
+DominantH <- nail$DominantH
+FailDay <- nail$FailDay
+Censored <- nail$Censored
 
-```{r cars}
-summary(cars)
+cindex <- which(nail$Censored==1)
+
+
+# logFailDay <- log(nail$FailDay) ## come back to this !
+t <- nail$FailDay 
+t[cindex] <- NA
+c <- nail$FailDay
+I <- Censored
+n <- nrow(nail$Subject)
+
+# nailModel <- "model {
+#   for(i in 1:n){
+#     I[i] ~ dinterval(t[i],c[i])
+#     t[i] ~ dnorm(mu[i],1/(sigma)^2)
+#     mu[i] <- beta0 + beta1 * FingerNo[i] + beta2 * DominantH[i] + P[i]
+#   }
+#   sigma ~ dexp(1/2)
+#   mu10 ~ dnorm(10,0.1)
+#   mu60 ~ dnorm(7.5,0.1)
+#   beta0 = 8/7*mu10 - 1/7*mu80
+#   beta1 = -1/70*mu10 + 1/70*mu80
+# }
+# "
+
+#### Removed  DominantH because we couldn't figure out mu matrix?? 
+# nested for loop for person, go through the fingerNO, and could do third for loop for Domainant Hand
+P <- Subject
+nailModel <- "model {
+  for(i in 1:70){
+    I[i] ~ dinterval(t[i],c[i])
+    t[i] ~ dnorm(mu[i],1/(sigma)^2)
+    mu[i] <- beta0 + beta1 * FingerNo[i] + P[i]
+  }
+  sigma ~ dexp(1/2)
+  mu10 ~ dnorm(10,0.1)
+  mu60 ~ dnorm(7.5,0.1)
+  beta0 = 1.2*mu10 - 0.2*mu60
+  beta1 = -0.02*mu10 + 0.02*mu60
+
+  
+  for (i in 1:7){
+  P[i] ~ dnorm(0,sigmap)
+  }
+  sigmap ~ dgamma(0.001,0.001)
+}
+"
+
+nail.sim <- jags(
+  data=c('t','c','I','FingerNo', 'P'),
+  parameters.to.save=c('beta0','beta1','sigma', 'sigmap'),
+  model.file=textConnection(nailModel),
+  n.iter=12000,
+  n.burnin=2000,
+  n.chains=5,
+  n.thin=1
+)
+
+## Notes from Dr. Warr: make fingerNo a factor because it's not ordinal 
 ```
 
-## Including Plots
 
-You can also embed plots, for example:
-
-```{r pressure, echo=FALSE}
-plot(pressure)
-```
-
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
